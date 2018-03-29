@@ -1211,8 +1211,8 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
             tox = tox_new(options, &err_back_new);
             if (tox == NULL)
             {
-                purple_debug_error("toxprpl", "Fatal error, could not allocate "
-                                   "memory for messenger!\n");
+		purple_debug_error("toxprpl", "Fatal error, could not allocate "
+					      "memory for messenger! Error: %d\n", err_back_new);
                 return;
             }
             g_free(msg_data);
