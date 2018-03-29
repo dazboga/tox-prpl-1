@@ -54,6 +54,7 @@
 #include <glib/gstdio.h>
 
 #include <tox/tox.h>
+#include <tox/toxencryptsave.h>
 #include <network.h>
 
 #define PURPLE_PLUGINS
@@ -1375,12 +1376,50 @@ static void toxprpl_user_import(PurpleAccount *acct, const char *filename, toxpr
         p = p + rb;
     }
 
-    close(fd);
-
     /* File was read successfully */
     profile->size = sb.st_size;
     profile->account_data = account_data;
     profile->exists = 1;
+
+    if (acct->password != NULL && strcmp(acct->password, "") != 0) {
+        /* account data should be encrypted, we need to decrypt it */
+        TOX_ERR_GET_SALT saltError;
+        uint8_t salt[TOX_PASS_SALT_LENGTH];
+        tox_get_salt(account_data, salt, &saltError);
+
+        if (saltError != TOX_ERR_GET_SALT_OK) {
+            purple_debug_error("toxprpl", "Could not read salt from the save file!\n");
+            g_free(account_data);
+            return;
+        }
+
+        Tox_Pass_Key* const passKey = tox_pass_key_new();
+        TOX_ERR_KEY_DERIVATION err;
+        tox_pass_key_derive_with_salt(passKey, acct->password,
+                strlen(acct->password), salt, &err);
+        if (err != TOX_ERR_KEY_DERIVATION_OK) {
+            tox_pass_key_free(passKey);
+            purple_debug_error("toxprpl", "Could not derive key!\n");
+            g_free(account_data);
+            return;
+        }
+
+        TOX_ERR_DECRYPTION error;
+        profile->account_data = g_malloc0(sb.st_size - TOX_PASS_ENCRYPTION_EXTRA_LENGTH);
+        tox_pass_key_decrypt(passKey, account_data, sb.st_size, profile->account_data, &error);
+        if (error != TOX_ERR_DECRYPTION_OK) {
+            purple_debug_error("toxprpl", "Couldn't decrypt saved data!\n");
+            g_free(account_data);
+            g_free(profile->account_data);
+            return;
+        }
+
+        profile->size -= TOX_PASS_ENCRYPTION_EXTRA_LENGTH;
+        tox_pass_key_free(passKey);
+        g_free(account_data);
+    }
+
+    close(fd);
 }
 
 static void toxprpl_login(PurpleAccount *acct)
@@ -1690,12 +1729,45 @@ static void toxprpl_user_export(PurpleConnection *gc, const char *filename)
     {
         uint8_t *account_data = g_malloc0(msg_size);
         tox_get_savedata(plugin->tox, account_data);
-        guchar *p = account_data;
+        uint8_t *encrypted_acc_data = account_data;
+        uint32_t size = msg_size;
+
+        if (account->password != NULL && strcmp(account->password, "") != 0) {
+            /* account data should be encrypted, we need to decrypt it */
+            Tox_Pass_Key* const passKey = tox_pass_key_new();
+            TOX_ERR_KEY_DERIVATION err;
+            purple_debug_info("toxprpl", "Exporting encrypted save\n");
+            purple_debug_info("toxprpl", "%s\n", account->password);
+            tox_pass_key_derive(passKey, account->password,
+                    strlen(account->password), &err);
+            if (err != TOX_ERR_KEY_DERIVATION_OK) {
+                tox_pass_key_free(passKey);
+                purple_debug_error("toxprpl", "Could not derive key!\n");
+                g_free(account_data);
+                return;
+            }
+
+            TOX_ERR_ENCRYPTION error;
+            encrypted_acc_data = g_malloc0(msg_size + TOX_PASS_ENCRYPTION_EXTRA_LENGTH);
+            tox_pass_key_encrypt(passKey, account_data, msg_size, encrypted_acc_data, &error);
+            if (error != TOX_ERR_ENCRYPTION_OK) {
+                purple_debug_error("toxprpl", "Couldn't encrypt saved data!\n");
+                g_free(account_data);
+                g_free(encrypted_acc_data);
+                return;
+            }
+
+            size += TOX_PASS_ENCRYPTION_EXTRA_LENGTH;
+            tox_pass_key_free(passKey);
+            g_free(account_data);
+        }
+
+        guchar *p = encrypted_acc_data;
 
         int fd = open(filename, O_RDWR | O_CREAT | O_BINARY, S_IRUSR | S_IWUSR);
         if (fd == -1)
         {
-            g_free(account_data);
+            g_free(encrypted_acc_data);
             purple_notify_message(gc,
                     PURPLE_NOTIFY_MSG_ERROR,
                     _("Error"),
@@ -1705,7 +1777,7 @@ static void toxprpl_user_export(PurpleConnection *gc, const char *filename)
             return;
         }
 
-        size_t remaining = (size_t)msg_size;
+        size_t remaining = (size_t)size;
         while (remaining > 0)
         {
             ssize_t wb = write(fd, p, remaining);
@@ -1718,7 +1790,7 @@ static void toxprpl_user_export(PurpleConnection *gc, const char *filename)
                     strerror(errno),
                     (PurpleNotifyCloseCallback)toxprpl_login,
                     account);
-                g_free(account_data);
+                g_free(encrypted_acc_data);
                 close(fd);
                 return;
             }
@@ -1726,7 +1798,7 @@ static void toxprpl_user_export(PurpleConnection *gc, const char *filename)
             p = p + wb;
         }
 
-        g_free(account_data);
+        g_free(encrypted_acc_data);
         close(fd);
     }
 }
@@ -2143,7 +2215,7 @@ static unsigned int toxprpl_send_typing(PurpleConnection *gc, const char *who,
 
 static PurplePluginProtocolInfo prpl_info =
 {
-    OPT_PROTO_NO_PASSWORD | OPT_PROTO_REGISTER_NOSCREENNAME | OPT_PROTO_INVITE_MESSAGE,  /* options */
+    OPT_PROTO_REGISTER_NOSCREENNAME | OPT_PROTO_INVITE_MESSAGE,  /* options */
     NULL,                               /* user_splits, initialized in toxprpl_init() */
     NULL,                               /* protocol_options, initialized in toxprpl_init() */
     NO_BUDDY_ICONS,                     /* icon spec */
