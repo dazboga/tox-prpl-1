@@ -598,8 +598,14 @@ static PurpleXfer *toxprpl_find_xfer(PurpleConnection *gc,
     return NULL;
 }
 
+#ifdef _WIN32
+#define fseeko fseek
+#define ftello ftell
+#define off_t int64_t
+#endif
+
 void on_file_chunk_request(Tox *m, uint32_t friendnum, uint32_t filenum,
-                           uint64_t position, size_t length, void *userdata)
+                           uint64_t position_in, size_t length, void *userdata)
 {
     //purple_debug_info("toxprpl", "on_file_chunk_request\n");
     PurpleConnection *gc = userdata;
@@ -621,6 +627,7 @@ void on_file_chunk_request(Tox *m, uint32_t friendnum, uint32_t filenum,
         return;
     }
 
+	off_t position = position_in;
     if (ftello(fp) != position)
     {
         while (fseeko(fp, position, SEEK_SET) == -1)
@@ -679,7 +686,7 @@ void on_file_recv_chunk(Tox *m, uint32_t friendnum, uint32_t filenum,
         return;
     }
 
-    while (fwrite(data, length, 1, fp) == -1)
+    while (fwrite(data, length, 1, fp) == 0)
     {
         if (errno != EAGAIN)
         {
@@ -1149,7 +1156,7 @@ static void toxprpl_sync_friends(PurpleAccount *acct, Tox *tox)
     /* all left in friendlist that were not reset are not yet in blist */
     for (i = 0; i < fl_len; i++)
     {
-        if (friendlist[i] != -1)
+        if (friendlist[i] != (uint32_t) -1)
         {
             toxprpl_sync_add_buddy(acct, tox, friendlist[i]);
         }
@@ -1393,10 +1400,15 @@ static void toxprpl_user_import(PurpleAccount *acct, const char *filename, toxpr
             return;
         }
 
-        Tox_Pass_Key* const passKey = tox_pass_key_new();
         TOX_ERR_KEY_DERIVATION err;
+#if TOX_VERSION_IS_API_COMPATIBLE(0, 2, 0)
+        Tox_Pass_Key* const passKey = tox_pass_key_derive_with_salt((const uint8_t *)acct->password,
+                strlen(acct->password), salt, &err);
+#else
+        Tox_Pass_Key* const passKey = tox_pass_key_new();
         tox_pass_key_derive_with_salt(passKey, acct->password,
                 strlen(acct->password), salt, &err);
+#endif
         if (err != TOX_ERR_KEY_DERIVATION_OK) {
             tox_pass_key_free(passKey);
             purple_debug_error("toxprpl", "Could not derive key!\n");
@@ -1597,7 +1609,7 @@ static int toxprpl_tox_add_friend(Tox *tox, PurpleConnection *gc,
 static void toxprpl_add_buddy(PurpleConnection *gc, PurpleBuddy *buddy,
                               PurpleGroup *group, const char *msg)
 {
-    purple_debug_info("toxprpl", "adding %s to buddy list with length %zu\n",
+    purple_debug_info("toxprpl", "adding %s to buddy list with length %" G_GSIZE_FORMAT "\n",
                       buddy->name, strlen(buddy->name));
     toxprpl_plugin_data *plugin = purple_connection_get_protocol_data(gc);
 
@@ -1734,12 +1746,18 @@ static void toxprpl_user_export(PurpleConnection *gc, const char *filename)
 
         if (account->password != NULL && strcmp(account->password, "") != 0) {
             /* account data should be encrypted, we need to decrypt it */
-            Tox_Pass_Key* const passKey = tox_pass_key_new();
             TOX_ERR_KEY_DERIVATION err;
             purple_debug_info("toxprpl", "Exporting encrypted save\n");
             purple_debug_info("toxprpl", "%s\n", account->password);
+#if TOX_VERSION_IS_API_COMPATIBLE(0, 2, 0)
+            Tox_Pass_Key* const passKey = tox_pass_key_derive((uint8_t *)account->password,
+                    strlen(account->password), &err);
+#else
+            Tox_Pass_Key* const passKey = tox_pass_key_new();
             tox_pass_key_derive(passKey, account->password,
                     strlen(account->password), &err);
+	
+#endif
             if (err != TOX_ERR_KEY_DERIVATION_OK) {
                 tox_pass_key_free(passKey);
                 purple_debug_error("toxprpl", "Could not derive key!\n");
@@ -2319,7 +2337,16 @@ static void toxprpl_init(PurplePlugin *plugin)
         "account_path", DEFAULT_ACCOUNT_PATH);
     prpl_info.protocol_options = g_list_append(prpl_info.protocol_options,
                                                option);
+											  
 }
+
+#ifndef TOXPRPL_VERSION
+#define TOXPRPL_VERSION "0.6.0rc1"
+#endif
+
+#ifndef TOXPRPL_PACKAGE_URL
+#define TOXPRPL_PACKAGE_URL "https://github.com/EionRobb/tox-prpl"
+#endif
 
 static PurplePluginInfo info =
 {
@@ -2333,11 +2360,11 @@ static PurplePluginInfo info =
     PURPLE_PRIORITY_DEFAULT,                            /* priority */
     TOXPRPL_ID,                                         /* id */
     "Tox",                                              /* name */
-    VERSION,                                            /* version */
+    TOXPRPL_VERSION,                                    /* version */
     "Tox Protocol Plugin",                              /* summary */
     "Tox Protocol Plugin http://tox.im/",               /* description */
     "Sergey 'Jin' Bostandzhyan",                        /* author */
-    PACKAGE_URL,                                        /* homepage */
+    TOXPRPL_PACKAGE_URL,                                /* homepage */
     NULL,                                               /* load */
     NULL,                                               /* unload */
     NULL,                                               /* destroy */
