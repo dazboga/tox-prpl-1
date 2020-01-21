@@ -905,7 +905,7 @@ static gboolean tox_connection_check(gpointer gc)
         plugin->connected = 0;
         purple_debug_info("toxprpl", "DHT disconnected!\n");
         purple_connection_notice(gc,
-                _("Connection to DHT server lost, attempging to reconnect..."));
+                _("Connection to DHT server lost, attempting to reconnect..."));
         purple_connection_update_progress(gc, _("Reconnecting..."),
                 0,   /* which connection step this is */
                 2);  /* total number of steps */
@@ -1180,7 +1180,7 @@ static gboolean toxprpl_save_account(PurpleAccount *account, Tox* tox)
 }
 
 static void toxprpl_login_after_setup(PurpleAccount *acct,
-                                      toxprpl_profile_data profile)
+                                      toxprpl_profile_data *profile)
 {
     purple_debug_info("toxprpl", "logging in...\n");
 
@@ -1189,18 +1189,17 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
     gc->flags |= PURPLE_CONNECTION_NO_FONTSIZE | PURPLE_CONNECTION_NO_URLDESC;
     gc->flags |= PURPLE_CONNECTION_NO_IMAGES | PURPLE_CONNECTION_NO_NEWLINES;
 
-    TOX_ERR_NEW new_err; /* TODO parse the error code? */
-    Tox *tox = tox_new(0, &new_err);
+	TOX_ERR_OPTIONS_NEW err_back;
+	/* TODO: Handle err_back */
+	struct Tox_Options *options = tox_options_new(&err_back);
+	Tox *tox;
 
     purple_debug_info("toxprpl", "logging in %s\n", acct->username);
-    if (profile.exists)
+    if (profile->exists)
     {
         purple_debug_info("toxprpl", "found existing account data\n");
-        gsize out_len = profile.size;
-        guchar *msg_data = profile.account_data;
-        TOX_ERR_OPTIONS_NEW err_back;
-        /* TODO: Handle err_back */
-        struct Tox_Options *options = tox_options_new(&err_back);
+        gsize out_len = profile->size;
+        guchar *msg_data = profile->account_data;
 
         if (err_back == TOX_ERR_OPTIONS_NEW_MALLOC)
         {
@@ -1219,8 +1218,8 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
             tox = tox_new(options, &err_back_new);
             if (tox == NULL)
             {
-		purple_debug_error("toxprpl", "Fatal error, could not allocate "
-					      "memory for messenger! Error: %d\n", err_back_new);
+				purple_debug_error("toxprpl", "Fatal error, could not allocate "
+								  "memory for messenger! Error: %d\n", err_back_new);
                 return;
             }
             g_free(msg_data);
@@ -1228,8 +1227,11 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
     }
     else /* write account into pidgin */
     {
+		TOX_ERR_NEW new_err; /* TODO parse the error code? */
+		tox = tox_new(options, &new_err);
         toxprpl_save_account(acct, tox);
     }
+	
     tox_callback_friend_message(tox, on_incoming_message);
     tox_callback_friend_name(tox, on_nick_change);
     tox_callback_friend_status(tox, on_status_change);
@@ -1277,6 +1279,7 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
         tox_kill(tox);
         return;
     }
+	tox_add_tcp_relay(tox, ip, port, bin_str, &err_back_bootstr);
     g_free(bin_str);
 
     toxprpl_sync_friends(acct, tox);
@@ -1323,6 +1326,15 @@ static void toxprpl_login_after_setup(PurpleAccount *acct,
 
     purple_connection_set_protocol_data(gc, plugin);
     toxprpl_set_nick_action(gc, nick);
+}
+
+static void toxprpl_login_after_setup_cb(PurpleAccount *acct, int index)
+{
+	toxprpl_profile_data* profile;
+	
+	profile = g_dataset_get_data(acct, "profile");
+	toxprpl_login_after_setup(acct, profile);
+	g_dataset_destroy(acct);
 }
 
 static void toxprpl_user_import(PurpleAccount *acct, const char *filename, toxprpl_profile_data* profile)
@@ -1440,12 +1452,14 @@ static void toxprpl_login(PurpleAccount *acct)
     const char *key = purple_account_get_string(acct, "account_path",
                                           DEFAULT_ACCOUNT_PATH);
     gchar* filename = g_build_filename(purple_user_dir(), "tox", key, "tox_save.tox", NULL);
-    toxprpl_profile_data profile;
-    toxprpl_user_import(acct, filename, &profile);
+    toxprpl_profile_data *profile = g_new0(toxprpl_profile_data, 1);
+    toxprpl_user_import(acct, filename, profile);
 
     /* check if we need to run first time setup */
-    if (!profile.exists)
+    if (!profile->exists)
     {
+		g_dataset_set_data(acct, "profile", profile);
+		
         purple_request_action(gc,
             _("Setup Tox account"),
             _("This appears to be your first login to the Tox network, "
@@ -1458,7 +1472,7 @@ static void toxprpl_login(PurpleAccount *acct)
             acct, /* user data */
             1,    /* 1 choice */
             _("Create new Tox account"),
-            G_CALLBACK(toxprpl_login_after_setup));
+            G_CALLBACK(toxprpl_login_after_setup_cb));
     }
     else
     {

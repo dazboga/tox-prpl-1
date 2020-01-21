@@ -62,11 +62,13 @@ else
 endif
 
 WIN32_CFLAGS = -I$(WIN32_DEV_TOP)/glib-2.28.8/include -I$(WIN32_DEV_TOP)/glib-2.28.8/include/glib-2.0 -I$(WIN32_DEV_TOP)/glib-2.28.8/lib/glib-2.0/include -I$(LIBTOXCORE_DIR)/include -DENABLE_NLS -DPACKAGE_VERSION='"$(PLUGIN_VERSION)"' -Wall -Wextra -Werror -Wno-deprecated-declarations -Wno-unused-parameter -fno-strict-aliasing -Wformat
-WIN32_LDFLAGS = -L$(WIN32_DEV_TOP)/glib-2.28.8/lib -L$(LIBTOXCORE_DIR)/lib -lpurple -lintl -lglib-2.0 -lgobject-2.0 -lsodium -lvpx -ltoxcore -lsodium -lws2_32 -pthread -liphlpapi -ladvapi32 -g -ggdb -static-libgcc -lz
+WIN32_LDFLAGS = -L$(WIN32_DEV_TOP)/glib-2.28.8/lib -L$(LIBTOXCORE_DIR)/lib -L. -lpurple -lintl -lglib-2.0 -lgobject-2.0 -g -ggdb -static-libgcc -lz
+WIN32_LDFLAGS_SHARED = $(WIN32_LDFLAGS) -L. -ltox
+WIN32_LDFLAGS_STATIC = $(WIN32_LDFLAGS) -lsodium -lvpx -ltoxcore -lsodium -lws2_32 -lpthread -liphlpapi -ladvapi32
 WIN32_PIDGIN2_CFLAGS = -I$(PIDGIN_TREE_TOP)/libpurple -I$(PIDGIN_TREE_TOP) $(WIN32_CFLAGS)
 WIN32_PIDGIN3_CFLAGS = -I$(PIDGIN3_TREE_TOP)/libpurple -I$(PIDGIN3_TREE_TOP) -I$(WIN32_DEV_TOP)/gplugin-dev/gplugin $(WIN32_CFLAGS)
-WIN32_PIDGIN2_LDFLAGS = -L$(PIDGIN_TREE_TOP)/libpurple $(WIN32_LDFLAGS)
-WIN32_PIDGIN3_LDFLAGS = -L$(PIDGIN3_TREE_TOP)/libpurple -L$(WIN32_DEV_TOP)/gplugin-dev/gplugin $(WIN32_LDFLAGS) -lgplugin
+WIN32_PIDGIN2_LDFLAGS = -L$(PIDGIN_TREE_TOP)/libpurple $(WIN32_LDFLAGS_SHARED)
+WIN32_PIDGIN3_LDFLAGS = -L$(PIDGIN3_TREE_TOP)/libpurple -L$(WIN32_DEV_TOP)/gplugin-dev/gplugin $(WIN32_LDFLAGS_SHARED) -lgplugin
 
 PURPLE_COMPAT_FILES := 
 PURPLE_C_FILES := src/toxprpl.c
@@ -90,7 +92,7 @@ libtoxcore_compat.a: src/toxcore_compat.o
 	ar -rc $@ $^
 
 libtoxprpl.dll: toxcore_compat.o $(PURPLE_C_FILES) $(PURPLE_COMPAT_FILES)
-	$(WIN32_CC) -DVERSION="$(VERSION)" -DPACKAGE_URL="$(PACKAGE_URL)" -shared -o $@ -L. -ltoxcore_compat $^ $(WIN32_PIDGIN2_CFLAGS) $(WIN32_PIDGIN2_LDFLAGS) -Ipurple2compat
+	$(WIN32_CC) -g -ggdb -O0 -DVERSION="$(VERSION)" -DPACKAGE_URL="$(PACKAGE_URL)" -shared -o $@  $^ $(WIN32_PIDGIN2_CFLAGS) $(WIN32_PIDGIN2_LDFLAGS) -Ipurple2compat
 
 libtoxprpl3.dll: $(PURPLE_C_FILES)
 	$(WIN32_CC) -DVERSION="$(VERSION)" -DPACKAGE_URL="$(PACKAGE_URL)" -shared -o $@ $^ $(WIN32_PIDGIN3_CFLAGS) $(WIN32_PIDGIN3_LDFLAGS)

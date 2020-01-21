@@ -14,7 +14,7 @@ int __ms_vsnprintf(char *buffer, size_t count, const char *format, va_list argpt
 	return _vsnprintf(buffer, count, format, argptr);
 }
 
-static HMODULE advapi32 = NULL;
+/*static HMODULE advapi32 = NULL;
 typedef BOOLEAN(*SystemFunction036_Func)(PVOID,ULONG);
 static SystemFunction036_Func _SystemFunction036;
 
@@ -26,4 +26,4 @@ BOOLEAN SystemFunction036(PVOID RandomBuffer, ULONG RandomBufferLength) {
 	}
 	
 	return _SystemFunction036(RandomBuffer, RandomBufferLength);
-}
+}*/
