@@ -77,7 +77,7 @@ PKG_CHECK_MODULES(PURPLE, [purple >= 2.7.0])
 
 PKG_CHECK_MODULES(GLIB, [glib-2.0])
 
-PKG_CHECK_MODULES(LIBTOXCORE, [libtoxcore])
+PKG_CHECK_MODULES(LIBTOXCORE, [toxcore])
 
 
 EXTRA_LT_LDFLAGS="-avoid-version"
